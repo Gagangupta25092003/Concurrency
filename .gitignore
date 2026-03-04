@@ -1,0 +1,88 @@
+# =========================
+# Compiled Object Files
+# =========================
+*.o
+*.lo
+*.obj
+
+# Static Libraries
+*.a
+*.la
+*.lib
+
+# Shared Libraries
+*.so
+*.so.*
+*.dylib
+*.dll
+
+# =========================
+# Executables
+# =========================
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+*.elf
+
+# If your binary has a fixed name like:
+server
+webserver
+main
+main_cv
+main_mutex
+fetchAndAdd
+testAndSet
+
+# =========================
+# Debug Files
+# =========================
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# =========================
+# Build Directories
+# =========================
+build/
+bin/
+obj/
+dist/
+
+# CMake (if you use it later)
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# =========================
+# Coverage / Profiling
+# =========================
+*.gcno
+*.gcda
+*.gcov
+gmon.out
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# Editor / IDE Files
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Linux
+*~
