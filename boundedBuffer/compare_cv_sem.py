@@ -16,7 +16,7 @@ GRAPHS_DIR = os.path.join(SCRIPT_DIR, "graphs")
 MAIN_CV_BIN = os.path.join(SCRIPT_DIR, "main_cv")
 MAIN_SEM_BIN = os.path.join(SCRIPT_DIR, "main_sem")
 NUM_PRODUCERS = 2
-CONSUMER_COUNTS = [4, 8]
+CONSUMER_COUNTS = [8, 32]
 
 RE_MONOTONIC = re.compile(r"time_takenMonotonic.*?:\s+([\d.]+)")
 RE_PROCESS = re.compile(r"time_takenProcess.*?:\s+([\d.]+)")
@@ -118,10 +118,10 @@ def main():
                 ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(), label,
                         ha="center", va="bottom", fontsize=7)
 
-    plt.suptitle(f"Mutex+CV vs Semaphore — Light vs Heavy ({NUM_PRODUCERS} producers)",
+    plt.suptitle(f"Mutex+CV vs Semaphore — Light vs Heavy (8 and 32 consumers, {NUM_PRODUCERS} producers)",
                  fontsize=12, y=1.02)
     plt.tight_layout()
-    out_path = os.path.join(GRAPHS_DIR, "compare_cv_sem.png")
+    out_path = os.path.join(GRAPHS_DIR, "compare_cv_sem_8_32.png")
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"Saved comparison plot to {out_path}")

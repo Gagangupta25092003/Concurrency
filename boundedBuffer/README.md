@@ -85,13 +85,13 @@ pip install matplotlib numpy
 
   Builds `main_sem`, runs all thread counts → `graphs/metrics_plot_sem.png`
 
-- **Mutex+CV vs Semaphore comparison (4 and 8 threads)**
+- **Mutex+CV vs Semaphore comparison (8 and 32 threads)**
 
   ```bash
   python3 compare_cv_sem.py
   ```
 
-  Builds both binaries, runs at 4 and 8 threads → `graphs/compare_cv_sem.png`
+  Builds both binaries, runs at 8 and 32 threads → `graphs/compare_cv_sem_8_32.png`
 
 - **Buffer size effect (1–500 capacity, 8 threads)**
 
@@ -133,16 +133,16 @@ All plots are saved under the `graphs/` directory.
 
 ---
 
-### 3. Mutex+CV vs Semaphore comparison (4 and 8 threads)
+### 3. Mutex+CV vs Semaphore comparison (8 and 32 threads)
 
-![Compare CV vs Semaphore](graphs/compare_cv_sem.png)
+![Compare CV vs Semaphore 8 vs 32](graphs/compare_cv_sem_8_32.png)
 
 **Inferences:**
 
-- **Wall time** is nearly identical for both implementations at both thread counts (~5.8s at 4 threads, ~2.9s at 8 threads). Neither has a meaningful throughput advantage.
-- **CPU time** is also matched (~20s for both), confirming the workload is identical regardless of synchronization mechanism.
-- **Time per task** is symmetric: ~5.8ms at 4 threads, ~2.9ms at 8 threads for both.
-- **CPU/wall ratio** shows a small difference: mutex+CV is slightly higher at 8 threads (4.35 vs 3.98). This suggests the CV implementation consumes marginally more CPU in the wake-up path (broadcast wakes all waiters, some of which immediately re-sleep), while the semaphore wakes precisely one waiter at a time.
+- **Wall time** drops significantly from 8 to 32 threads for both implementations, showing expected throughput improvement from higher consumer parallelism.
+- **CPU time** stays close between Mutex+CV and Semaphore at the same thread count, indicating both execute essentially the same total work.
+- **Time per task** is much lower at 32 threads than 8 threads for both implementations; the improvement is primarily from increased overlap of heavy tasks.
+- **CPU/wall ratio** increases at 32 threads because the same CPU work is compressed into less wall time; any small difference between implementations is synchronization overhead, not algorithmic behavior.
 
 ---
 
@@ -165,5 +165,5 @@ All plots are saved under the `graphs/` directory.
 | ------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
 | `metrics_plot_cv.png`     | Mutex+CV, 4 metrics vs thread count        | Wall time drops sharply up to 8–16 threads; CPU/wall ratio confirms true parallelism.                  |
 | `metrics_plot_sem.png`    | Semaphore, 4 metrics vs thread count       | Nearly identical scaling to mutex+CV; semaphore reaches slightly higher CPU efficiency at 64 threads.  |
-| `compare_cv_sem.png`      | Mutex+CV vs Semaphore at 4 and 8 threads   | Throughput is equivalent; semaphore uses marginally less CPU due to precise single-waiter wake-ups.    |
+| `compare_cv_sem_8_32.png` | Mutex+CV vs Semaphore at 8 and 32 threads  | Both scale strongly from 8 to 32 consumers; implementation differences remain small vs workload effects. |
 | `buffer_size_effect.png`  | Both impls across buffer sizes 1–500       | Buffer size has negligible impact on throughput; workload duration dominates over sync overhead.        |
