@@ -2,39 +2,33 @@
 #include "boundedBuffer.h"
 #include "tasks.h"
 #include "task.h"
-#include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-
-static void enqueue_n(bounded_buffer_t* buf, void* (*task_func)(void*), int n) {
-    for (int i = 0; i < n; i++) {
-        task_t* task = create_task(task_func, NULL);
-        bb_push(buf, task);
-    }
-}
 
 void* producer(void* arg) {
     void** args = (void**)arg;
     bounded_buffer_t* buf = (bounded_buffer_t*)args[0];
-    int type = (int)(intptr_t)args[1];
+    void* (*task_func)(void*) = args[1];
     int count = (int)(intptr_t)args[2];
 
-    switch (type) {
-        case 1: enqueue_n(buf, task_1, count); break;
-        case 2: enqueue_n(buf, task_2, count); break;
-        case 3: enqueue_n(buf, task_4, count); break;
-        case 4: enqueue_n(buf, task_3, count); break;
-        default: {
-            int each = count / 4;
-            enqueue_n(buf, task_1, each);
-            enqueue_n(buf, task_2, each);
-            enqueue_n(buf, task_3, each);
-            enqueue_n(buf, task_4, each);
-            break;
-        }
-    }
+    for (int i = 0; i < count; i++)
+        bb_push(buf, create_task(task_func, NULL));
 
-    terminate(buf);
+    return NULL;
+}
+
+void* mixed_producer(void* arg) {
+    void** args = (void**)arg;
+    bounded_buffer_t* buf = (bounded_buffer_t*)args[0];
+    int count = (int)(intptr_t)args[1];
+
+    void* (*funcs[4])(void*) = { task_1, task_2, task_3, task_4 };
+    int per_type = count / 4;
+
+    for (int f = 0; f < 4; f++)
+        for (int i = 0; i < per_type; i++)
+            bb_push(buf, create_task(funcs[f], NULL));
+
     return NULL;
 }
 

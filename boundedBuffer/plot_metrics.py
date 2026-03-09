@@ -14,12 +14,22 @@ except ImportError:
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 GRAPHS_DIR = os.path.join(SCRIPT_DIR, "graphs")
 MAIN_BIN = os.path.join(SCRIPT_DIR, "main_cv")
+NUM_PRODUCERS = 2
 THREAD_COUNTS = [1, 2, 4, 8, 16, 32, 64]
 
 RE_MONOTONIC = re.compile(r"time_takenMonotonic.*?:\s+([\d.]+)")
 RE_PROCESS = re.compile(r"time_takenProcess.*?:\s+([\d.]+)")
 RE_PER_TASK = re.compile(r"time_takenPerTask.*?:\s+([\d.]+)")
 RE_CPU_VS_WALL = re.compile(r"cpuTimeVsWallTime.*?:\s+([\d.]+)")
+
+TASK_NAMES = ["Small CPU", "Sleep/Blocking", "Heavy CPU", "File I/O", "Mixed"]
+TASK_STYLES = {
+    "Small CPU":       {"color": "#3498db", "marker": "o", "ls": "-"},
+    "Sleep/Blocking":  {"color": "#85c1e9", "marker": "s", "ls": "--"},
+    "Heavy CPU":       {"color": "#e74c3c", "marker": "^", "ls": "-"},
+    "File I/O":        {"color": "#f1948a", "marker": "D", "ls": "--"},
+    "Mixed":           {"color": "#2ecc71", "marker": "P", "ls": "-."},
+}
 
 
 def build():
@@ -33,9 +43,9 @@ def build():
         raise RuntimeError(f"Build failed: {result.stderr}")
 
 
-def run_benchmark(num_threads):
+def run_benchmark(num_consumers):
     result = subprocess.run(
-        [MAIN_BIN, str(num_threads)],
+        [MAIN_BIN, str(NUM_PRODUCERS), str(num_consumers)],
         cwd=SCRIPT_DIR, capture_output=True, text=True, timeout=600,
     )
     if result.returncode != 0:
@@ -43,20 +53,16 @@ def run_benchmark(num_threads):
     return result.stdout + result.stderr
 
 
-def parse_metrics(output):
-    monotonic = [float(m) for m in RE_MONOTONIC.findall(output)]
-    process = [float(m) for m in RE_PROCESS.findall(output)]
-    per_task = [float(m) for m in RE_PER_TASK.findall(output)]
-    cpu_vs_wall = [float(m) for m in RE_CPU_VS_WALL.findall(output)]
-    n = len(monotonic)
-    if n == 0:
-        raise ValueError("No metrics found in output")
-    return (
-        sum(monotonic) / n,
-        sum(process) / n,
-        sum(per_task) / n,
-        sum(cpu_vs_wall) / n,
-    )
+def parse_per_task(output):
+    mono = [float(m) for m in RE_MONOTONIC.findall(output)]
+    proc = [float(m) for m in RE_PROCESS.findall(output)]
+    per  = [float(m) for m in RE_PER_TASK.findall(output)]
+    ratio = [float(m) for m in RE_CPU_VS_WALL.findall(output)]
+    result = {}
+    for i, name in enumerate(TASK_NAMES):
+        if i < len(mono):
+            result[name] = (mono[i], proc[i], per[i], ratio[i])
+    return result
 
 
 def main():
@@ -64,43 +70,44 @@ def main():
     build()
     os.makedirs(GRAPHS_DIR, exist_ok=True)
 
-    data = {
-        "time_takenMonotonic": [],
-        "time_takenProcess": [],
-        "time_takenPerTask": [],
-        "cpuTimeVsWallTime": [],
-    }
+    all_data = {name: {"mono": [], "proc": [], "per": [], "ratio": []} for name in TASK_NAMES}
 
-    print("Running benchmarks for thread counts:", THREAD_COUNTS)
+    print(f"Running benchmarks ({NUM_PRODUCERS} producers) for consumer counts:", THREAD_COUNTS)
     for n in THREAD_COUNTS:
-        print(f"  threads = {n} ...", end=" ", flush=True)
+        print(f"  consumers = {n} ...", end=" ", flush=True)
         out = run_benchmark(n)
-        m_mono, m_proc, m_per, m_ratio = parse_metrics(out)
-        data["time_takenMonotonic"].append(m_mono)
-        data["time_takenProcess"].append(m_proc)
-        data["time_takenPerTask"].append(m_per)
-        data["cpuTimeVsWallTime"].append(m_ratio)
+        per_task = parse_per_task(out)
+        for name in TASK_NAMES:
+            if name in per_task:
+                m = per_task[name]
+                all_data[name]["mono"].append(m[0])
+                all_data[name]["proc"].append(m[1])
+                all_data[name]["per"].append(m[2])
+                all_data[name]["ratio"].append(m[3])
         print("done")
 
-    fig, axes = plt.subplots(2, 2, figsize=(10, 8))
+    metric_keys = ["mono", "proc", "per", "ratio"]
+    metric_labels = ["Wall time (s)", "CPU time (s)", "Time per task (s)", "CPU / Wall ratio"]
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 9))
     axes = axes.flatten()
 
-    titles = [
-        ("time_takenMonotonic", "Wall time (s)", "Wall Time (Monotonic)"),
-        ("time_takenProcess", "CPU time (s)", "Process CPU Time"),
-        ("time_takenPerTask", "Time per task (s)", "Time Per Task"),
-        ("cpuTimeVsWallTime", "Ratio", "CPU / Wall Time Ratio"),
-    ]
-
-    for ax, (key, ylabel, title) in zip(axes, titles):
-        ax.plot(THREAD_COUNTS, data[key], marker="o", linewidth=2, markersize=8, color="#3498db")
+    for ax, key, ylabel in zip(axes, metric_keys, metric_labels):
+        for name in TASK_NAMES:
+            s = TASK_STYLES[name]
+            tag = "[light]" if name in ("Small CPU", "Sleep/Blocking") else \
+                  "[heavy]" if name in ("Heavy CPU", "File I/O") else "[mixed]"
+            ax.plot(THREAD_COUNTS, all_data[name][key],
+                    marker=s["marker"], linestyle=s["ls"], linewidth=2, markersize=7,
+                    color=s["color"], label=f"{name} {tag}")
         ax.set_xlabel("Consumer threads")
         ax.set_ylabel(ylabel)
-        ax.set_title(title)
+        ax.set_title(ylabel)
         ax.set_xticks(THREAD_COUNTS)
+        ax.legend(fontsize=7)
         ax.grid(True, alpha=0.3)
 
-    plt.suptitle("Bounded Buffer — Mutex+CV", fontsize=13, y=1.02)
+    plt.suptitle(f"Bounded Buffer — Mutex+CV ({NUM_PRODUCERS} producers)", fontsize=13, y=1.02)
     plt.tight_layout()
     out_path = os.path.join(GRAPHS_DIR, "metrics_plot_cv.png")
     plt.savefig(out_path, dpi=150, bbox_inches="tight")

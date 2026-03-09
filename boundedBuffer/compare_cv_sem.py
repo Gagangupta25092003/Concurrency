@@ -15,12 +15,17 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 GRAPHS_DIR = os.path.join(SCRIPT_DIR, "graphs")
 MAIN_CV_BIN = os.path.join(SCRIPT_DIR, "main_cv")
 MAIN_SEM_BIN = os.path.join(SCRIPT_DIR, "main_sem")
-THREAD_COUNTS = [4, 8]
+NUM_PRODUCERS = 2
+CONSUMER_COUNTS = [4, 8]
 
 RE_MONOTONIC = re.compile(r"time_takenMonotonic.*?:\s+([\d.]+)")
 RE_PROCESS = re.compile(r"time_takenProcess.*?:\s+([\d.]+)")
 RE_PER_TASK = re.compile(r"time_takenPerTask.*?:\s+([\d.]+)")
 RE_CPU_VS_WALL = re.compile(r"cpuTimeVsWallTime.*?:\s+([\d.]+)")
+
+TASK_NAMES = ["Small CPU", "Sleep/Blocking", "Heavy CPU", "File I/O", "Mixed"]
+LIGHT = ["Small CPU", "Sleep/Blocking"]
+HEAVY = ["Heavy CPU", "File I/O"]
 
 
 def build_binaries():
@@ -31,9 +36,9 @@ def build_binaries():
             raise RuntimeError(f"Build {name} failed: {result.stderr}")
 
 
-def run_benchmark(bin_path, num_threads):
+def run_benchmark(bin_path, num_consumers):
     result = subprocess.run(
-        [bin_path, str(num_threads)],
+        [bin_path, str(NUM_PRODUCERS), str(num_consumers)],
         cwd=SCRIPT_DIR, capture_output=True, text=True, timeout=600,
     )
     if result.returncode != 0:
@@ -41,20 +46,21 @@ def run_benchmark(bin_path, num_threads):
     return result.stdout + result.stderr
 
 
-def parse_metrics(output):
-    monotonic = [float(m) for m in RE_MONOTONIC.findall(output)]
-    process = [float(m) for m in RE_PROCESS.findall(output)]
-    per_task = [float(m) for m in RE_PER_TASK.findall(output)]
-    cpu_vs_wall = [float(m) for m in RE_CPU_VS_WALL.findall(output)]
-    n = len(monotonic)
-    if n == 0:
-        raise ValueError("No metrics found")
-    return (
-        sum(monotonic) / n,
-        sum(process) / n,
-        sum(per_task) / n,
-        sum(cpu_vs_wall) / n,
-    )
+def parse_per_task(output):
+    mono = [float(m) for m in RE_MONOTONIC.findall(output)]
+    proc = [float(m) for m in RE_PROCESS.findall(output)]
+    per  = [float(m) for m in RE_PER_TASK.findall(output)]
+    ratio = [float(m) for m in RE_CPU_VS_WALL.findall(output)]
+    result = {}
+    for i, name in enumerate(TASK_NAMES):
+        if i < len(mono):
+            result[name] = (mono[i], proc[i], per[i], ratio[i])
+    return result
+
+
+def avg_category(per_task, category_names, metric_idx):
+    vals = [per_task[n][metric_idx] for n in category_names if n in per_task]
+    return sum(vals) / len(vals) if vals else 0.0
 
 
 def main():
@@ -63,64 +69,57 @@ def main():
     os.makedirs(GRAPHS_DIR, exist_ok=True)
 
     configs = [("Mutex+CV", MAIN_CV_BIN), ("Semaphore", MAIN_SEM_BIN)]
-    results = {n: {} for n in THREAD_COUNTS}
+    results = {}
 
     for impl_name, bin_path in configs:
-        for n in THREAD_COUNTS:
-            print(f"  {impl_name} threads={n} ...", end=" ", flush=True)
+        for n in CONSUMER_COUNTS:
+            key = f"{impl_name}_{n}"
+            print(f"  {impl_name} consumers={n} ...", end=" ", flush=True)
             out = run_benchmark(bin_path, n)
-            results[n][impl_name] = parse_metrics(out)
+            results[key] = parse_per_task(out)
             print("done")
 
-    x_labels = [
-        "Mutex+CV\n4 threads", "Mutex+CV\n8 threads",
-        "Semaphore\n4 threads", "Semaphore\n8 threads",
-    ]
-    metric_keys = ["time_takenMonotonic", "time_takenProcess", "time_takenPerTask", "cpuTimeVsWallTime"]
-    metric_titles = [
-        "Wall time (s)", "Process CPU time (s)",
-        "Time per task (s)", "CPU / Wall ratio",
-    ]
-    values = {
-        "time_takenMonotonic": [
-            results[4]["Mutex+CV"][0], results[8]["Mutex+CV"][0],
-            results[4]["Semaphore"][0], results[8]["Semaphore"][0],
-        ],
-        "time_takenProcess": [
-            results[4]["Mutex+CV"][1], results[8]["Mutex+CV"][1],
-            results[4]["Semaphore"][1], results[8]["Semaphore"][1],
-        ],
-        "time_takenPerTask": [
-            results[4]["Mutex+CV"][2], results[8]["Mutex+CV"][2],
-            results[4]["Semaphore"][2], results[8]["Semaphore"][2],
-        ],
-        "cpuTimeVsWallTime": [
-            results[4]["Mutex+CV"][3], results[8]["Mutex+CV"][3],
-            results[4]["Semaphore"][3], results[8]["Semaphore"][3],
-        ],
-    }
+    x_labels = []
+    light_vals = {i: [] for i in range(4)}
+    heavy_vals = {i: [] for i in range(4)}
+    for impl_name, _ in configs:
+        for n in CONSUMER_COUNTS:
+            key = f"{impl_name}_{n}"
+            x_labels.append(f"{impl_name}\n{n} cons")
+            pt = results[key]
+            for i in range(4):
+                light_vals[i].append(avg_category(pt, LIGHT, i))
+                heavy_vals[i].append(avg_category(pt, HEAVY, i))
 
+    metric_titles = ["Wall time (s)", "CPU time (s)", "Time per task (s)", "CPU / Wall ratio"]
     x = np.arange(len(x_labels))
-    width = 0.6
-    colors = ["#3498db", "#2980b9", "#e74c3c", "#c0392b"]
+    width = 0.35
 
-    fig, axes = plt.subplots(2, 2, figsize=(11, 9))
+    fig, axes = plt.subplots(2, 2, figsize=(12, 9))
     axes = axes.flatten()
 
-    for ax, (key, title) in zip(axes, zip(metric_keys, metric_titles)):
-        vals = values[key]
-        bars = ax.bar(x, vals, width=width, color=colors, edgecolor="black", linewidth=0.5)
+    for ax, i, title in zip(axes, range(4), metric_titles):
+        b1 = ax.bar(x - width/2, light_vals[i], width, label="Light tasks", color="#3498db",
+                     edgecolor="black", linewidth=0.5)
+        b2 = ax.bar(x + width/2, heavy_vals[i], width, label="Heavy tasks", color="#e74c3c",
+                     edgecolor="black", linewidth=0.5)
         ax.set_ylabel(title)
         ax.set_title(title)
         ax.set_xticks(x)
         ax.set_xticklabels(x_labels)
+        ax.legend(fontsize=8)
         ax.grid(True, axis="y", alpha=0.3)
-        for b, v in zip(bars, vals):
-            label = f"{v:.4f}" if v < 100 else f"{v:.2f}"
-            ax.text(b.get_x() + b.get_width() / 2, b.get_height(), label,
-                    ha="center", va="bottom", fontsize=8)
+        for b in [b1, b2]:
+            for bar, v in zip(b, [light_vals[i], heavy_vals[i]]):
+                pass
+        for bar_group, vals in [(b1, light_vals[i]), (b2, heavy_vals[i])]:
+            for bar, v in zip(bar_group, vals):
+                label = f"{v:.4f}" if v < 100 else f"{v:.1f}"
+                ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(), label,
+                        ha="center", va="bottom", fontsize=7)
 
-    plt.suptitle("Bounded Buffer: Mutex+CV vs Semaphore (4 and 8 threads)", fontsize=12, y=1.02)
+    plt.suptitle(f"Mutex+CV vs Semaphore — Light vs Heavy ({NUM_PRODUCERS} producers)",
+                 fontsize=12, y=1.02)
     plt.tight_layout()
     out_path = os.path.join(GRAPHS_DIR, "compare_cv_sem.png")
     plt.savefig(out_path, dpi=150, bbox_inches="tight")

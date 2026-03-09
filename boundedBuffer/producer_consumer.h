@@ -2,6 +2,7 @@
 #define PRODUCER_CONSUMER_H
 
 void* producer(void* arg);
+void* mixed_producer(void* arg);
 void* consumer(void* arg);
 
 #endif
