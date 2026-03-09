@@ -33,8 +33,10 @@ webserver
 main
 main_cv
 main_mutex
+main_sem
 fetchAndAdd
 testAndSet
+main_sem
 
 # =========================
 # Debug Files
